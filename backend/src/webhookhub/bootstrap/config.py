@@ -19,6 +19,9 @@ class Settings(BaseSettings):
     api_port: int = Field(default=8000, ge=1, le=65535)
     cors_origins: list[AnyHttpUrl] = Field(default_factory=list)
     postgres_dsn: str = "postgresql+asyncpg://webhookhub:webhookhub@localhost:5432/webhookhub"
+    auth_secret_key: str = "local-development-secret-change-me"  # noqa: S105
+    access_token_ttl_minutes: int = Field(default=15, ge=1, le=1440)
+    refresh_token_ttl_days: int = Field(default=30, ge=1, le=365)
     redis_dsn: str = "redis://localhost:6379/0"
     kafka_bootstrap_servers: list[str] = Field(default_factory=lambda: ["localhost:9092"])
 

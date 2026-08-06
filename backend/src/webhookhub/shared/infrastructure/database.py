@@ -43,6 +43,10 @@ class Database:
             autoflush=False,
         )
 
+    async def get_session(self) -> AsyncGenerator[AsyncSession]:
+        async with self.session_factory() as session:
+            yield session
+
     @asynccontextmanager
     async def session(self) -> AsyncGenerator[AsyncSession]:
         async with self.session_factory() as session:

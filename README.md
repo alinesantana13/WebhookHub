@@ -6,17 +6,20 @@ engenharia backend Python, arquitetura orientada a eventos e operação em produ
 
 ## Estado atual
 
-Entrega 1 — fundação do backend:
+Entregas 1 e 2 — fundação do backend e identidade:
 
 - aplicação FastAPI com configuração tipada;
 - endpoints `GET /health` e `GET /ready`, com readiness real do PostgreSQL;
 - SQLAlchemy 2 assíncrono, `asyncpg` e Alembic;
+- cadastro multi-tenant com usuário, organização e vínculo de proprietário;
+- login com access token JWT e refresh token rotativo armazenado como hash;
+- detecção de reutilização de refresh token e RBAC por organização;
 - propagação segura de `X-Request-ID`;
 - testes, Ruff, MyPy e meta mínima de 80% de cobertura;
 - imagens e serviços locais para API, PostgreSQL, Redis e Kafka;
 - pipeline inicial de qualidade e build no GitHub Actions.
 
-Autenticação, mensageria e frontend entram nas próximas entregas. O endpoint `/ready`
+Mensageria e frontend entram nas próximas entregas. O endpoint `/ready`
 já verifica o PostgreSQL; Redis e Kafka serão incluídos quando seus adaptadores forem
 implementados.
 
@@ -94,8 +97,7 @@ separado em `domain`, `application`, `infrastructure` e `presentation`.
 
 ## Próximas entregas
 
-1. identidade, organizações, sessões rotativas e RBAC;
-2. aplicações, API Keys e endpoints protegidos contra SSRF;
-3. ingestão idempotente e Transactional Outbox;
-4. Kafka, workers, entrega HTTP, retry e DLQ;
-5. observabilidade e frontend administrativo.
+1. aplicações, API Keys e endpoints protegidos contra SSRF;
+2. ingestão idempotente e Transactional Outbox;
+3. Kafka, workers, entrega HTTP, retry e DLQ;
+4. observabilidade e frontend administrativo.

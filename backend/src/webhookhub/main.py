@@ -5,6 +5,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from webhookhub.bootstrap.config import Settings, get_settings
+from webhookhub.identity.presentation.routes import organizations_router
+from webhookhub.identity.presentation.routes import router as identity_router
 from webhookhub.shared.infrastructure.database import Database
 from webhookhub.shared.presentation.health import router as health_router
 from webhookhub.shared.presentation.middleware import RequestContextMiddleware
@@ -41,6 +43,8 @@ def create_app(settings: Settings | None = None, database: Database | None = Non
         allow_headers=["Authorization", "Content-Type", "Idempotency-Key", "X-Request-ID"],
     )
     app.include_router(health_router)
+    app.include_router(identity_router)
+    app.include_router(organizations_router)
     return app
 
 

@@ -6,6 +6,7 @@ from sqlalchemy import Connection, pool
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from webhookhub.bootstrap.config import get_settings
+from webhookhub.identity.domain import models as identity_models  # noqa: F401
 from webhookhub.shared.infrastructure.database import Base
 
 config = context.config
