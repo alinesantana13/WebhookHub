@@ -11,6 +11,23 @@ permissions:
 jobs:
   backend-quality:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: webhookhub
+          POSTGRES_USER: webhookhub
+          POSTGRES_PASSWORD: webhookhub
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U webhookhub -d webhookhub"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      WEBHOOKHUB_POSTGRES_DSN: postgresql+asyncpg://webhookhub:webhookhub@localhost:5432/webhookhub
+      WEBHOOKHUB_TEST_POSTGRES_DSN: postgresql+asyncpg://webhookhub:webhookhub@localhost:5432/webhookhub
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v7
@@ -22,6 +39,8 @@ jobs:
       - run: uv run --project backend ruff check backend
       - run: uv run --project backend ruff format --check backend
       - run: uv run --project backend mypy backend/src backend/tests
+      - run: uv run --project backend alembic -c backend/alembic.ini upgrade head
+      - run: uv run --project backend alembic -c backend/alembic.ini check
       - run: uv run --project backend pytest backend/tests
 
   backend-image:

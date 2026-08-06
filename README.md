@@ -9,18 +9,20 @@ engenharia backend Python, arquitetura orientada a eventos e operação em produ
 Entrega 1 — fundação do backend:
 
 - aplicação FastAPI com configuração tipada;
-- endpoints `GET /health` e `GET /ready`;
+- endpoints `GET /health` e `GET /ready`, com readiness real do PostgreSQL;
+- SQLAlchemy 2 assíncrono, `asyncpg` e Alembic;
 - propagação segura de `X-Request-ID`;
 - testes, Ruff, MyPy e meta mínima de 80% de cobertura;
 - imagens e serviços locais para API, PostgreSQL, Redis e Kafka;
 - pipeline inicial de qualidade e build no GitHub Actions.
 
-Persistência, autenticação, mensageria e frontend entram nas próximas entregas. Neste
-momento, `/ready` confirma somente que o processo HTTP iniciou; as verificações reais de
-PostgreSQL, Redis e Kafka serão adicionadas junto com os respectivos adaptadores.
+Autenticação, mensageria e frontend entram nas próximas entregas. O endpoint `/ready`
+já verifica o PostgreSQL; Redis e Kafka serão incluídos quando seus adaptadores forem
+implementados.
 
 ## Requisitos
 
+- Python 3.13 ou 3.14;
 - `uv` 0.11 ou superior;
 - Docker 27 ou superior com Docker Compose;
 - GNU Make opcional no Windows.
@@ -51,6 +53,26 @@ uv run --project backend mypy backend/src backend/tests
 uv run --project backend pytest backend/tests
 ```
 
+## Banco de dados e migrations
+
+Com o PostgreSQL do Compose em execução:
+
+```powershell
+uv run --project backend alembic -c backend/alembic.ini upgrade head
+uv run --project backend alembic -c backend/alembic.ini check
+```
+
+O primeiro comando aplica migrations; o segundo detecta divergências entre os models e
+o schema. Ainda não há tabelas de domínio: a primeira migration será criada junto das
+entidades de identidade e organizações, evitando schema sem comportamento associado.
+
+Para incluir o teste de integração local na suíte:
+
+```powershell
+$env:WEBHOOKHUB_TEST_POSTGRES_DSN = "postgresql+asyncpg://webhookhub:webhookhub@localhost:5432/webhookhub"
+uv run --project backend pytest backend/tests
+```
+
 O arquivo `backend/uv.lock` deve ser versionado. O CI e a imagem Docker usam `--frozen`,
 portanto falham se o manifesto e o lockfile estiverem fora de sincronia. O `pip` não faz
 parte do fluxo de desenvolvimento, build ou CI do projeto.
@@ -72,9 +94,8 @@ separado em `domain`, `application`, `infrastructure` e `presentation`.
 
 ## Próximas entregas
 
-1. persistência assíncrona com PostgreSQL, SQLAlchemy 2 e Alembic;
-2. identidade, sessões rotativas e RBAC;
-3. aplicações, API Keys e endpoints protegidos contra SSRF;
-4. ingestão idempotente e Transactional Outbox;
-5. Kafka, workers, entrega HTTP, retry e DLQ;
-6. observabilidade e frontend administrativo.
+1. identidade, organizações, sessões rotativas e RBAC;
+2. aplicações, API Keys e endpoints protegidos contra SSRF;
+3. ingestão idempotente e Transactional Outbox;
+4. Kafka, workers, entrega HTTP, retry e DLQ;
+5. observabilidade e frontend administrativo.

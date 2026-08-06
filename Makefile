@@ -1,4 +1,4 @@
-.PHONY: install run lint format typecheck test check compose-up compose-down
+.PHONY: install run lint format typecheck test migrate migration-check check compose-up compose-down
 
 install:
 	uv sync --project backend --group dev
@@ -17,6 +17,12 @@ typecheck:
 
 test:
 	uv run --project backend pytest backend/tests
+
+migrate:
+	uv run --project backend alembic -c backend/alembic.ini upgrade head
+
+migration-check:
+	uv run --project backend alembic -c backend/alembic.ini check
 
 check: lint typecheck test
 

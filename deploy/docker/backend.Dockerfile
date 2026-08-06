@@ -9,7 +9,7 @@ WORKDIR /app
 COPY backend/pyproject.toml backend/uv.lock backend/README.md ./
 RUN uv sync --frozen --no-dev --no-install-project
 COPY backend/src ./src
-RUN uv sync --frozen --no-dev
+RUN uv sync --frozen --no-dev --no-editable
 
 FROM python:3.13-slim AS runtime
 

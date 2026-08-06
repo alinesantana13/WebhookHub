@@ -8,6 +8,8 @@ services:
     env_file:
       - path: .env
         required: false
+    environment:
+      WEBHOOKHUB_POSTGRES_DSN: ${WEBHOOKHUB_POSTGRES_DSN:-postgresql+asyncpg://webhookhub:webhookhub@postgres:5432/webhookhub}
     ports:
       - "8000:8000"
     depends_on:

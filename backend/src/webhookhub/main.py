@@ -1,21 +1,37 @@
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from webhookhub.bootstrap.config import Settings, get_settings
+from webhookhub.shared.infrastructure.database import Database
 from webhookhub.shared.presentation.health import router as health_router
 from webhookhub.shared.presentation.middleware import RequestContextMiddleware
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
+def create_app(settings: Settings | None = None, database: Database | None = None) -> FastAPI:
     resolved_settings = settings or get_settings()
+    resolved_database = database or Database(
+        resolved_settings.postgres_dsn,
+        echo=resolved_settings.debug,
+    )
+
+    @asynccontextmanager
+    async def lifespan(_: FastAPI) -> AsyncGenerator[None]:
+        yield
+        await resolved_database.dispose()
+
     app = FastAPI(
         title="WebhookHub API",
         version="0.1.0",
         debug=resolved_settings.debug,
         docs_url="/docs" if resolved_settings.docs_enabled else None,
         redoc_url=None,
+        lifespan=lifespan,
     )
     app.state.settings = resolved_settings
+    app.state.database = resolved_database
     app.add_middleware(RequestContextMiddleware)
     app.add_middleware(
         CORSMiddleware,
