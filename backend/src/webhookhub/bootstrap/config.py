@@ -31,6 +31,7 @@ class Settings(BaseSettings):
     delivery_max_attempts: int = Field(default=5, ge=1, le=20)
     delivery_retry_base_seconds: int = Field(default=5, ge=1, le=3600)
     worker_poll_seconds: float = Field(default=1.0, gt=0, le=60)
+    metrics_token: str | None = None
 
     @property
     def docs_enabled(self) -> bool:

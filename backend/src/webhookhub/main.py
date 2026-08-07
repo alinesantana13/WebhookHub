@@ -1,8 +1,11 @@
+import logging
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from webhookhub.applications.presentation.ingestion import router as ingestion_router
 from webhookhub.applications.presentation.routes import router as applications_router
@@ -13,11 +16,20 @@ from webhookhub.shared.infrastructure.cache import RedisCache
 from webhookhub.shared.infrastructure.database import Database
 from webhookhub.shared.infrastructure.messaging import KafkaMessaging
 from webhookhub.shared.presentation.health import router as health_router
-from webhookhub.shared.presentation.middleware import RequestContextMiddleware
+from webhookhub.shared.presentation.middleware import (
+    HttpMetrics,
+    HttpObservabilityMiddleware,
+    RequestContextMiddleware,
+)
+from webhookhub.shared.presentation.observability import router as observability_router
 
 
 def create_app(settings: Settings | None = None, database: Database | None = None) -> FastAPI:
     resolved_settings = settings or get_settings()
+    logging.basicConfig(
+        level=resolved_settings.log_level,
+        format="%(asctime)s %(levelname)s %(name)s %(message)s",
+    )
     resolved_database = database or Database(
         resolved_settings.postgres_dsn,
         echo=resolved_settings.debug,
@@ -43,7 +55,10 @@ def create_app(settings: Settings | None = None, database: Database | None = Non
     app.state.database = resolved_database
     app.state.cache = cache
     app.state.messaging = messaging
+    app.state.http_metrics = HttpMetrics()
+    app.dependency_overrides[get_settings] = lambda: resolved_settings
     app.add_middleware(RequestContextMiddleware)
+    app.add_middleware(HttpObservabilityMiddleware, metrics=app.state.http_metrics)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=[str(origin) for origin in resolved_settings.cors_origins],
@@ -62,6 +77,9 @@ def create_app(settings: Settings | None = None, database: Database | None = Non
     app.include_router(organizations_router)
     app.include_router(applications_router)
     app.include_router(ingestion_router)
+    app.include_router(observability_router)
+    admin_directory = Path(__file__).parent / "admin"
+    app.mount("/admin", StaticFiles(directory=admin_directory, html=True), name="admin")
     return app
 
 

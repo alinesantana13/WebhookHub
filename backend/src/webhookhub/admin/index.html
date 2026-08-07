@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>WebhookHub</title>
+  <link rel="stylesheet" href="/admin/styles.css">
+</head>
+<body>
+  <main>
+    <section id="login" class="login-card">
+      <p class="eyebrow">WEBHOOKHUB</p>
+      <h1>Controle cada entrega.</h1>
+      <p class="muted">Entre para administrar aplicações, destinos e eventos.</p>
+      <form id="login-form">
+        <label>E-mail<input name="email" type="email" required autocomplete="email"></label>
+        <label>Senha<input name="password" type="password" required autocomplete="current-password"></label>
+        <button>Entrar</button><p id="login-error" class="error"></p>
+      </form>
+    </section>
+    <section id="dashboard" hidden>
+      <header><div><p class="eyebrow">WEBHOOKHUB</p><h1>Painel operacional</h1></div><button id="logout" class="secondary">Sair</button></header>
+      <div class="toolbar"><label>Organização<select id="organization"></select></label><button id="new-app">Nova aplicação</button></div>
+      <div class="layout">
+        <aside><h2>Aplicações</h2><nav id="applications"></nav></aside>
+        <article id="empty"><h2>Selecione uma aplicação</h2><p class="muted">Os recursos e eventos recentes aparecerão aqui.</p></article>
+        <article id="details" hidden>
+          <div class="title-row"><div><p class="eyebrow">APLICAÇÃO</p><h2 id="app-name"></h2></div><div><button id="new-key">Nova chave</button><button id="new-endpoint" class="secondary">Novo endpoint</button></div></div>
+          <div id="secret" class="secret" hidden></div>
+          <section><h3>Chaves de API</h3><div id="keys" class="cards"></div></section>
+          <section><h3>Endpoints</h3><div id="endpoints" class="cards"></div></section>
+          <section><h3>Eventos recentes</h3><div id="events" class="events"></div></section>
+        </article>
+      </div>
+      <p id="toast" class="toast" hidden></p>
+    </section>
+  </main>
+  <script src="/admin/app.js" defer></script>
+</body>
+</html>

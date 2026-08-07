@@ -13,7 +13,14 @@ from webhookhub.applications.application.security import (
     new_api_key,
     validate_endpoint_url,
 )
-from webhookhub.applications.domain.models import ApiKey, Application, Endpoint
+from webhookhub.applications.domain.models import (
+    ApiKey,
+    Application,
+    DeliveryStatus,
+    Endpoint,
+    WebhookDelivery,
+    WebhookEvent,
+)
 from webhookhub.identity.domain.models import Membership, OrganizationRole, User
 from webhookhub.identity.presentation.routes import get_current_user, get_session
 
@@ -43,6 +50,15 @@ class ApiKeyCreatedResponse(BaseModel):
     created_at: datetime
 
 
+class ApiKeyResponse(BaseModel):
+    id: UUID
+    name: str
+    prefix: str
+    created_at: datetime
+    last_used_at: datetime | None
+    revoked_at: datetime | None
+
+
 class EndpointResponse(BaseModel):
     id: UUID
     application_id: UUID
@@ -50,6 +66,24 @@ class EndpointResponse(BaseModel):
     url: str
     enabled: bool
     created_at: datetime
+
+
+class DeliveryResponse(BaseModel):
+    id: UUID
+    endpoint_id: UUID
+    status: DeliveryStatus
+    attempt_count: int
+    last_status_code: int | None
+    last_error: str | None
+    delivered_at: datetime | None
+
+
+class EventResponse(BaseModel):
+    id: UUID
+    idempotency_key: str
+    payload: dict[str, object]
+    received_at: datetime
+    deliveries: list[DeliveryResponse]
 
 
 async def require_membership(
@@ -164,6 +198,34 @@ async def revoke_api_key(
         await session.commit()
 
 
+@router.get("/applications/{application_id}/api-keys", response_model=list[ApiKeyResponse])
+async def list_api_keys(
+    application_id: UUID,
+    current_user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> list[ApiKeyResponse]:
+    application = await get_application(application_id, session)
+    await require_membership(application.organization_id, current_user.id, session)
+    keys = (
+        await session.scalars(
+            select(ApiKey)
+            .where(ApiKey.application_id == application_id)
+            .order_by(ApiKey.created_at.desc())
+        )
+    ).all()
+    return [
+        ApiKeyResponse(
+            id=key.id,
+            name=key.name,
+            prefix=key.key_prefix,
+            created_at=key.created_at,
+            last_used_at=key.last_used_at,
+            revoked_at=key.revoked_at,
+        )
+        for key in keys
+    ]
+
+
 @router.post(
     "/applications/{application_id}/endpoints",
     response_model=EndpointResponse,
@@ -205,3 +267,55 @@ async def list_endpoints(
             )
         ).all()
     )
+
+
+@router.get("/applications/{application_id}/events", response_model=list[EventResponse])
+async def list_events(
+    application_id: UUID,
+    current_user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    limit: int = 50,
+) -> list[EventResponse]:
+    application = await get_application(application_id, session)
+    await require_membership(application.organization_id, current_user.id, session)
+    bounded_limit = max(1, min(limit, 100))
+    events = (
+        await session.scalars(
+            select(WebhookEvent)
+            .where(WebhookEvent.application_id == application_id)
+            .order_by(WebhookEvent.received_at.desc())
+            .limit(bounded_limit)
+        )
+    ).all()
+    if not events:
+        return []
+    deliveries = (
+        await session.scalars(
+            select(WebhookDelivery).where(
+                WebhookDelivery.event_id.in_([event.id for event in events])
+            )
+        )
+    ).all()
+    by_event: dict[UUID, list[DeliveryResponse]] = {}
+    for delivery in deliveries:
+        by_event.setdefault(delivery.event_id, []).append(
+            DeliveryResponse(
+                id=delivery.id,
+                endpoint_id=delivery.endpoint_id,
+                status=delivery.status,
+                attempt_count=delivery.attempt_count,
+                last_status_code=delivery.last_status_code,
+                last_error=delivery.last_error,
+                delivered_at=delivery.delivered_at,
+            )
+        )
+    return [
+        EventResponse(
+            id=event.id,
+            idempotency_key=event.idempotency_key,
+            payload=event.payload,
+            received_at=event.received_at,
+            deliveries=by_event.get(event.id, []),
+        )
+        for event in events
+    ]

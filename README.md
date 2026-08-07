@@ -6,7 +6,7 @@ engenharia backend Python, arquitetura orientada a eventos e operação em produ
 
 ## Estado atual
 
-Entregas 1 a 5 — fundação, identidade, aplicações, ingestão e entrega:
+Entregas 1 a 6 — fundação, identidade, aplicações, ingestão, entrega e operação:
 
 - aplicação FastAPI com configuração tipada;
 - endpoints `GET /health` e `GET /ready`, com readiness real do PostgreSQL;
@@ -20,12 +20,15 @@ Entregas 1 a 5 — fundação, identidade, aplicações, ingestão e entrega:
 - relay da outbox para Kafka e consumo em grupo por workers;
 - entrega HTTP com proteção contra SSRF no momento do envio, timeout e redirects desativados;
 - retries exponenciais duráveis e Dead Letter Queue no Kafka após o limite de tentativas;
+- painel administrativo responsivo em `/admin/`, com gestão de aplicações, chaves e endpoints;
+- consulta de eventos e estado de suas entregas pelo painel;
+- métricas Prometheus em `/metrics` e logs HTTP estruturados com correlação por request ID;
 - propagação segura de `X-Request-ID`;
 - testes, Ruff, MyPy e meta mínima de 80% de cobertura;
 - imagens e serviços locais para API, PostgreSQL, Redis e Kafka;
 - pipeline inicial de qualidade e build no GitHub Actions.
 
-O frontend entra na próxima entrega. O endpoint `/ready` verifica PostgreSQL, Redis e
+O endpoint `/ready` verifica PostgreSQL, Redis e
 Kafka (testes isolados verificam apenas o PostgreSQL).
 
 ## Requisitos
@@ -44,6 +47,14 @@ uv run --project backend uvicorn webhookhub.main:app --reload
 ```
 
 A API estará em `http://localhost:8000`; a documentação OpenAPI, em `/docs`.
+O painel administrativo estará em `http://localhost:8000/admin/`.
+
+## Observabilidade
+
+O endpoint `GET /metrics` expõe contadores e duração acumulada das requisições no
+formato Prometheus. Configure `WEBHOOKHUB_METRICS_TOKEN` fora do ambiente local para
+exigir `Authorization: Bearer <token>` na coleta. Os logs de acesso são emitidos como
+JSON e incluem método, rota, status, duração e `request_id`.
 
 ## Execução com Docker
 
@@ -121,4 +132,4 @@ separado em `domain`, `application`, `infrastructure` e `presentation`.
 
 ## Próximas entregas
 
-1. observabilidade e frontend administrativo.
+1. assinaturas HMAC, replay manual e alertas operacionais.
