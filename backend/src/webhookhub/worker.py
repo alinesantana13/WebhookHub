@@ -13,6 +13,7 @@ from webhookhub.applications.application.delivery import deliver
 from webhookhub.applications.domain.models import (
     DeliveryStatus,
     Endpoint,
+    OperationalAlert,
     OutboxMessage,
     WebhookDelivery,
     WebhookEvent,
@@ -84,11 +85,24 @@ async def process_delivery(
         delivery_row,
         url=endpoint.url,
         payload=event.payload,
+        signing_secret=endpoint.signing_secret,
         sender=sender,
         max_attempts=settings.delivery_max_attempts,
         retry_base_seconds=settings.delivery_retry_base_seconds,
     )
     if result.dead:
+        existing_alert = await session.scalar(
+            select(OperationalAlert).where(OperationalAlert.delivery_id == delivery_row.id)
+        )
+        if existing_alert is None:
+            session.add(
+                OperationalAlert(
+                    application_id=event.application_id,
+                    delivery_id=delivery_row.id,
+                    message=f"Delivery exhausted after {delivery_row.attempt_count} attempts: "
+                    f"{delivery_row.last_error or 'unknown error'}",
+                )
+            )
         await producer.send_and_wait(
             settings.kafka_dlq_topic,
             {

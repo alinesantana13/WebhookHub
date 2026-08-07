@@ -59,6 +59,7 @@ class Endpoint(Base):
     )
     name: Mapped[str] = mapped_column(String(120))
     url: Mapped[str] = mapped_column(String(2048))
+    signing_secret: Mapped[str] = mapped_column(String(128))
     enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
@@ -126,3 +127,18 @@ class WebhookDelivery(Base):
     last_error: Mapped[str | None] = mapped_column(Text)
     delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class OperationalAlert(Base):
+    __tablename__ = "operational_alerts"
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
+    application_id: Mapped[UUID] = mapped_column(
+        ForeignKey("applications.id", ondelete="CASCADE"), index=True
+    )
+    delivery_id: Mapped[UUID] = mapped_column(
+        ForeignKey("webhook_deliveries.id", ondelete="CASCADE"), unique=True, index=True
+    )
+    message: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    acknowledged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

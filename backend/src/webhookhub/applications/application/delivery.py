@@ -1,15 +1,22 @@
+import json
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Protocol
 
 import httpx
 
-from webhookhub.applications.application.security import UnsafeEndpointError, validate_endpoint_url
+from webhookhub.applications.application.security import (
+    UnsafeEndpointError,
+    sign_webhook,
+    validate_endpoint_url,
+)
 from webhookhub.applications.domain.models import DeliveryStatus, WebhookDelivery
 
 
 class HttpSender(Protocol):
-    async def post(self, url: str, *, json: object, headers: dict[str, str]) -> httpx.Response: ...
+    async def post(
+        self, url: str, *, content: bytes, headers: dict[str, str]
+    ) -> httpx.Response: ...
 
 
 @dataclass(frozen=True)
@@ -23,6 +30,7 @@ async def deliver(
     *,
     url: str,
     payload: dict[str, object],
+    signing_secret: str,
     sender: HttpSender,
     max_attempts: int,
     retry_base_seconds: int,
@@ -32,13 +40,20 @@ async def deliver(
     delivery.last_error = None
     try:
         safe_url = await validate_endpoint_url(url)
+        timestamp = int(now.timestamp())
+        body = json.dumps(
+            payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+        ).encode()
         response = await sender.post(
             safe_url,
-            json=payload,
+            content=body,
             headers={
+                "Content-Type": "application/json",
                 "User-Agent": "WebhookHub/0.1",
                 "X-Webhook-Event-ID": str(delivery.event_id),
                 "X-Webhook-Delivery-ID": str(delivery.id),
+                "X-Webhook-Timestamp": str(timestamp),
+                "X-Webhook-Signature": f"v1={sign_webhook(signing_secret, timestamp, body)}",
             },
         )
         delivery.last_status_code = response.status_code

@@ -14,8 +14,8 @@ class Sender:
         self.status_code = status_code
         self.requests: list[tuple[str, object, dict[str, str]]] = []
 
-    async def post(self, url: str, *, json: object, headers: dict[str, str]) -> httpx.Response:
-        self.requests.append((url, json, headers))
+    async def post(self, url: str, *, content: bytes, headers: dict[str, str]) -> httpx.Response:
+        self.requests.append((url, content, headers))
         if self.status_code is None:
             raise httpx.ConnectError("destination unavailable")
         return httpx.Response(self.status_code)
@@ -45,6 +45,7 @@ async def test_successful_delivery_records_result(monkeypatch: pytest.MonkeyPatc
         delivery,
         url="https://example.com/hook",
         payload={"paid": True},
+        signing_secret="whsec_test",  # noqa: S106
         sender=sender,
         max_attempts=3,
         retry_base_seconds=5,
@@ -54,6 +55,9 @@ async def test_successful_delivery_records_result(monkeypatch: pytest.MonkeyPatc
     assert delivery.status == DeliveryStatus.SUCCEEDED
     assert delivery.delivered_at is not None
     assert sender.requests[0][2]["X-Webhook-Event-ID"] == str(delivery.event_id)
+    assert sender.requests[0][2]["X-Webhook-Signature"].startswith("v1=")
+    assert sender.requests[0][2]["X-Webhook-Timestamp"]
+    assert sender.requests[0][1] == b'{"paid":true}'
 
 
 @pytest.mark.asyncio
@@ -71,6 +75,7 @@ async def test_failed_delivery_is_scheduled_with_exponential_retry(
         delivery,
         url="https://example.com/hook",
         payload={},
+        signing_secret="whsec_test",  # noqa: S106
         sender=Sender(503),
         max_attempts=3,
         retry_base_seconds=5,
@@ -97,6 +102,7 @@ async def test_last_network_failure_moves_delivery_to_dead_letter(
         delivery,
         url="https://example.com/hook",
         payload={},
+        signing_secret="whsec_test",  # noqa: S106
         sender=cast(Sender, Sender(None)),
         max_attempts=3,
         retry_base_seconds=5,

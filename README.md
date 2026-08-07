@@ -6,7 +6,7 @@ engenharia backend Python, arquitetura orientada a eventos e operação em produ
 
 ## Estado atual
 
-Entregas 1 a 6 — fundação, identidade, aplicações, ingestão, entrega e operação:
+Entregas 1 a 7 — fundação, identidade, aplicações, ingestão, entrega e operação:
 
 - aplicação FastAPI com configuração tipada;
 - endpoints `GET /health` e `GET /ready`, com readiness real do PostgreSQL;
@@ -20,6 +20,8 @@ Entregas 1 a 6 — fundação, identidade, aplicações, ingestão, entrega e op
 - relay da outbox para Kafka e consumo em grupo por workers;
 - entrega HTTP com proteção contra SSRF no momento do envio, timeout e redirects desativados;
 - retries exponenciais duráveis e Dead Letter Queue no Kafka após o limite de tentativas;
+- assinaturas HMAC SHA-256 por endpoint, com timestamp e segredo exibido uma única vez;
+- replay manual de entregas e alertas operacionais persistentes com reconhecimento;
 - painel administrativo responsivo em `/admin/`, com gestão de aplicações, chaves e endpoints;
 - consulta de eventos e estado de suas entregas pelo painel;
 - métricas Prometheus em `/metrics` e logs HTTP estruturados com correlação por request ID;
@@ -130,6 +132,17 @@ deploy/docker/            imagens da aplicação
 Os módulos de negócio serão introduzidos quando receberem comportamento real, cada um
 separado em `domain`, `application`, `infrastructure` e `presentation`.
 
+## Assinaturas, replay e alertas
+
+Cada endpoint recebe um `signing_secret` na criação, exibido apenas nessa resposta. As
+entregas incluem `X-Webhook-Timestamp` e `X-Webhook-Signature`, calculada como HMAC
+SHA-256 de `<timestamp>.<corpo JSON canônico>` e formatada como `v1=<hex>`.
+
+Administradores podem reenfileirar uma entrega com
+`POST /applications/{application_id}/deliveries/{delivery_id}/replay`. Falhas terminais
+geram alertas consultáveis em `GET /applications/{application_id}/alerts`, que podem ser
+reconhecidos pelo endpoint `POST .../alerts/{alert_id}/acknowledge`.
+
 ## Próximas entregas
 
-1. assinaturas HMAC, replay manual e alertas operacionais.
+1. retenção configurável, filtros avançados e exportação de auditoria.

@@ -7,7 +7,13 @@ from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from webhookhub.applications.application.security import hash_api_key
-from webhookhub.applications.domain.models import ApiKey, Application, Endpoint
+from webhookhub.applications.domain.models import (
+    ApiKey,
+    Application,
+    DeliveryStatus,
+    Endpoint,
+    WebhookDelivery,
+)
 from webhookhub.applications.presentation import routes
 from webhookhub.applications.presentation.routes import EndpointRequest, NamedRequest
 from webhookhub.identity.domain.models import Membership, OrganizationRole, User
@@ -127,5 +133,45 @@ async def test_endpoint_is_validated_before_persistence(monkeypatch: pytest.Monk
     )
 
     stored = cast(Endpoint, fake.added[0])
-    assert result is stored
+    assert result.id == stored.id
     assert stored.url == "https://example.com/hook"
+    assert result.signing_secret.startswith("whsec_")
+
+
+@pytest.mark.asyncio
+async def test_delivery_can_be_replayed() -> None:
+    app = application()
+    current_user = user()
+    member = membership(app, current_user, OrganizationRole.ADMIN)
+    delivery = WebhookDelivery(
+        id=uuid4(),
+        event_id=uuid4(),
+        endpoint_id=uuid4(),
+        status=DeliveryStatus.DEAD,
+        attempt_count=5,
+        last_status_code=503,
+        last_error="HTTP 503",
+        delivered_at=datetime.now(UTC),
+    )
+
+    class ReplaySession(FakeSession):
+        def __init__(self) -> None:
+            super().__init__(application=app)
+            self.results = [member, delivery]
+
+        async def scalar(self, _: object) -> Any:
+            return self.results.pop(0)
+
+        async def refresh(self, _: object) -> None:
+            return None
+
+    fake = ReplaySession()
+    result = await routes.replay_delivery(
+        app.id, delivery.id, current_user, cast(AsyncSession, fake)
+    )
+
+    assert result.status == DeliveryStatus.PENDING
+    assert result.attempt_count == 0
+    assert result.last_error is None
+    assert result.delivered_at is None
+    assert fake.commit_count == 1

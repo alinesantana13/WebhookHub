@@ -75,8 +75,20 @@ async def test_outbox_is_published_before_being_marked() -> None:
 async def test_consumer_creates_only_missing_endpoint_deliveries() -> None:
     event_id = uuid4()
     application_id = uuid4()
-    old = Endpoint(id=uuid4(), application_id=application_id, name="Old", url="https://a.test/")
-    new = Endpoint(id=uuid4(), application_id=application_id, name="New", url="https://b.test/")
+    old = Endpoint(
+        id=uuid4(),
+        application_id=application_id,
+        name="Old",
+        url="https://a.test/",
+        signing_secret="whsec_old",  # noqa: S106
+    )
+    new = Endpoint(
+        id=uuid4(),
+        application_id=application_id,
+        name="New",
+        url="https://b.test/",
+        signing_secret="whsec_new",  # noqa: S106
+    )
     session = Session([[old, new], [old.id]])
 
     await worker.ensure_deliveries(cast(AsyncSession, session), event_id, application_id)
@@ -95,6 +107,7 @@ async def test_final_failure_is_published_to_dlq(monkeypatch: pytest.MonkeyPatch
         application_id=application_id,
         name="Destination",
         url="https://example.com/",
+        signing_secret="whsec_test",  # noqa: S106
         enabled=True,
     )
     event = WebhookEvent(

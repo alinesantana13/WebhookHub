@@ -11,6 +11,7 @@ from webhookhub.applications.application.security import (
     UnsafeEndpointError,
     hash_api_key,
     new_api_key,
+    new_signing_secret,
     validate_endpoint_url,
 )
 from webhookhub.applications.domain.models import (
@@ -18,6 +19,7 @@ from webhookhub.applications.domain.models import (
     Application,
     DeliveryStatus,
     Endpoint,
+    OperationalAlert,
     WebhookDelivery,
     WebhookEvent,
 )
@@ -68,6 +70,10 @@ class EndpointResponse(BaseModel):
     created_at: datetime
 
 
+class EndpointCreatedResponse(EndpointResponse):
+    signing_secret: str
+
+
 class DeliveryResponse(BaseModel):
     id: UUID
     endpoint_id: UUID
@@ -84,6 +90,14 @@ class EventResponse(BaseModel):
     payload: dict[str, object]
     received_at: datetime
     deliveries: list[DeliveryResponse]
+
+
+class AlertResponse(BaseModel):
+    id: UUID
+    delivery_id: UUID
+    message: str
+    created_at: datetime
+    acknowledged_at: datetime | None
 
 
 async def require_membership(
@@ -228,7 +242,7 @@ async def list_api_keys(
 
 @router.post(
     "/applications/{application_id}/endpoints",
-    response_model=EndpointResponse,
+    response_model=EndpointCreatedResponse,
     status_code=status.HTTP_201_CREATED,
 )
 async def create_endpoint(
@@ -236,18 +250,32 @@ async def create_endpoint(
     payload: EndpointRequest,
     current_user: Annotated[User, Depends(get_current_user)],
     session: Annotated[AsyncSession, Depends(get_session)],
-) -> Endpoint:
+) -> EndpointCreatedResponse:
     application = await get_application(application_id, session)
     await require_membership(application.organization_id, current_user.id, session, write=True)
     try:
         safe_url = await validate_endpoint_url(payload.url)
     except UnsafeEndpointError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
-    endpoint = Endpoint(application_id=application.id, name=payload.name, url=safe_url)
+    endpoint = Endpoint(
+        application_id=application.id,
+        name=payload.name,
+        url=safe_url,
+        signing_secret=new_signing_secret(),
+        enabled=True,
+    )
     session.add(endpoint)
     await session.commit()
     await session.refresh(endpoint)
-    return endpoint
+    return EndpointCreatedResponse(
+        id=endpoint.id,
+        application_id=endpoint.application_id,
+        name=endpoint.name,
+        url=endpoint.url,
+        enabled=endpoint.enabled,
+        created_at=endpoint.created_at,
+        signing_secret=endpoint.signing_secret,
+    )
 
 
 @router.get("/applications/{application_id}/endpoints", response_model=list[EndpointResponse])
@@ -319,3 +347,84 @@ async def list_events(
         )
         for event in events
     ]
+
+
+@router.post(
+    "/applications/{application_id}/deliveries/{delivery_id}/replay",
+    response_model=DeliveryResponse,
+)
+async def replay_delivery(
+    application_id: UUID,
+    delivery_id: UUID,
+    current_user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> WebhookDelivery:
+    application = await get_application(application_id, session)
+    await require_membership(application.organization_id, current_user.id, session, write=True)
+    delivery = await session.scalar(
+        select(WebhookDelivery)
+        .join(WebhookEvent, WebhookEvent.id == WebhookDelivery.event_id)
+        .where(
+            WebhookDelivery.id == delivery_id,
+            WebhookEvent.application_id == application_id,
+        )
+        .with_for_update()
+    )
+    if delivery is None:
+        raise HTTPException(status_code=404, detail="Delivery not found")
+    delivery.status = DeliveryStatus.PENDING
+    delivery.attempt_count = 0
+    delivery.next_attempt_at = datetime.now(UTC)
+    delivery.last_status_code = None
+    delivery.last_error = None
+    delivery.delivered_at = None
+    await session.commit()
+    await session.refresh(delivery)
+    return delivery
+
+
+@router.get("/applications/{application_id}/alerts", response_model=list[AlertResponse])
+async def list_alerts(
+    application_id: UUID,
+    current_user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> list[OperationalAlert]:
+    application = await get_application(application_id, session)
+    await require_membership(application.organization_id, current_user.id, session)
+    return list(
+        (
+            await session.scalars(
+                select(OperationalAlert)
+                .where(OperationalAlert.application_id == application_id)
+                .order_by(OperationalAlert.created_at.desc())
+                .limit(100)
+            )
+        ).all()
+    )
+
+
+@router.post(
+    "/applications/{application_id}/alerts/{alert_id}/acknowledge",
+    response_model=AlertResponse,
+)
+async def acknowledge_alert(
+    application_id: UUID,
+    alert_id: UUID,
+    current_user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> OperationalAlert:
+    application = await get_application(application_id, session)
+    await require_membership(application.organization_id, current_user.id, session, write=True)
+    alert = await session.scalar(
+        select(OperationalAlert).where(
+            OperationalAlert.id == alert_id,
+            OperationalAlert.application_id == application_id,
+        )
+    )
+    if alert is None:
+        raise HTTPException(status_code=404, detail="Alert not found")
+    if alert.acknowledged_at is None:
+        alert.acknowledged_at = datetime.now(UTC)
+        await session.commit()
+        await session.refresh(alert)
+    return alert
