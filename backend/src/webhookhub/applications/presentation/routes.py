@@ -3,8 +3,9 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from webhookhub.applications.application.security import (
@@ -31,6 +32,14 @@ router = APIRouter(tags=["applications"])
 
 class NamedRequest(BaseModel):
     name: str = Field(min_length=1, max_length=120)
+
+    @field_validator("name")
+    @classmethod
+    def normalize_name(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("name cannot be blank")
+        return normalized
 
 
 class EndpointRequest(NamedRequest):
@@ -77,6 +86,8 @@ class EndpointCreatedResponse(EndpointResponse):
 class DeliveryResponse(BaseModel):
     id: UUID
     endpoint_id: UUID
+    endpoint_name: str | None = None
+    endpoint_url: str | None = None
     status: DeliveryStatus
     attempt_count: int
     last_status_code: int | None
@@ -95,6 +106,9 @@ class EventResponse(BaseModel):
 class AlertResponse(BaseModel):
     id: UUID
     delivery_id: UUID
+    endpoint_id: UUID | None = None
+    endpoint_name: str | None = None
+    endpoint_url: str | None = None
     message: str
     created_at: datetime
     acknowledged_at: datetime | None
@@ -140,7 +154,14 @@ async def create_application(
     await require_membership(organization_id, current_user.id, session, write=True)
     application = Application(organization_id=organization_id, name=payload.name)
     session.add(application)
-    await session.commit()
+    try:
+        await session.commit()
+    except IntegrityError as error:
+        await session.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="Application name already exists in this organization",
+        ) from error
     await session.refresh(application)
     return application
 
@@ -163,6 +184,18 @@ async def list_applications(
             )
         ).all()
     )
+
+
+@router.delete("/applications/{application_id}", status_code=204)
+async def delete_application(
+    application_id: UUID,
+    current_user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> None:
+    application = await get_application(application_id, session)
+    await require_membership(application.organization_id, current_user.id, session, write=True)
+    await session.delete(application)
+    await session.commit()
 
 
 @router.post(
@@ -193,7 +226,16 @@ async def create_api_key(
     )
 
 
-@router.delete("/applications/{application_id}/api-keys/{key_id}", status_code=204)
+async def get_api_key(application_id: UUID, key_id: UUID, session: AsyncSession) -> ApiKey:
+    key = await session.scalar(
+        select(ApiKey).where(ApiKey.id == key_id, ApiKey.application_id == application_id)
+    )
+    if key is None:
+        raise HTTPException(status_code=404, detail="API key not found")
+    return key
+
+
+@router.post("/applications/{application_id}/api-keys/{key_id}/revoke", status_code=204)
 async def revoke_api_key(
     application_id: UUID,
     key_id: UUID,
@@ -202,14 +244,24 @@ async def revoke_api_key(
 ) -> None:
     application = await get_application(application_id, session)
     await require_membership(application.organization_id, current_user.id, session, write=True)
-    key = await session.scalar(
-        select(ApiKey).where(ApiKey.id == key_id, ApiKey.application_id == application_id)
-    )
-    if key is None:
-        raise HTTPException(status_code=404, detail="API key not found")
+    key = await get_api_key(application_id, key_id, session)
     if key.revoked_at is None:
         key.revoked_at = datetime.now(UTC)
         await session.commit()
+
+
+@router.delete("/applications/{application_id}/api-keys/{key_id}", status_code=204)
+async def delete_api_key(
+    application_id: UUID,
+    key_id: UUID,
+    current_user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> None:
+    application = await get_application(application_id, session)
+    await require_membership(application.organization_id, current_user.id, session, write=True)
+    key = await get_api_key(application_id, key_id, session)
+    await session.delete(key)
+    await session.commit()
 
 
 @router.get("/applications/{application_id}/api-keys", response_model=list[ApiKeyResponse])
@@ -324,12 +376,23 @@ async def list_events(
             )
         )
     ).all()
+    endpoints = (
+        await session.scalars(
+            select(Endpoint).where(
+                Endpoint.id.in_({delivery.endpoint_id for delivery in deliveries})
+            )
+        )
+    ).all()
+    endpoints_by_id = {endpoint.id: endpoint for endpoint in endpoints}
     by_event: dict[UUID, list[DeliveryResponse]] = {}
     for delivery in deliveries:
+        endpoint = endpoints_by_id.get(delivery.endpoint_id)
         by_event.setdefault(delivery.event_id, []).append(
             DeliveryResponse(
                 id=delivery.id,
                 endpoint_id=delivery.endpoint_id,
+                endpoint_name=endpoint.name if endpoint else None,
+                endpoint_url=endpoint.url if endpoint else None,
                 status=delivery.status,
                 attempt_count=delivery.attempt_count,
                 last_status_code=delivery.last_status_code,
@@ -388,19 +451,50 @@ async def list_alerts(
     application_id: UUID,
     current_user: Annotated[User, Depends(get_current_user)],
     session: Annotated[AsyncSession, Depends(get_session)],
-) -> list[OperationalAlert]:
+) -> list[AlertResponse]:
     application = await get_application(application_id, session)
     await require_membership(application.organization_id, current_user.id, session)
-    return list(
-        (
-            await session.scalars(
-                select(OperationalAlert)
-                .where(OperationalAlert.application_id == application_id)
-                .order_by(OperationalAlert.created_at.desc())
-                .limit(100)
-            )
-        ).all()
+    alerts = list(
+        await session.scalars(
+            select(OperationalAlert)
+            .where(OperationalAlert.application_id == application_id)
+            .order_by(OperationalAlert.created_at.desc())
+            .limit(100)
+        )
     )
+    if not alerts:
+        return []
+    deliveries = (
+        await session.scalars(
+            select(WebhookDelivery).where(
+                WebhookDelivery.id.in_([alert.delivery_id for alert in alerts])
+            )
+        )
+    ).all()
+    deliveries_by_id = {delivery.id: delivery for delivery in deliveries}
+    endpoints = (
+        await session.scalars(
+            select(Endpoint).where(
+                Endpoint.id.in_({delivery.endpoint_id for delivery in deliveries})
+            )
+        )
+    ).all()
+    endpoints_by_id = {endpoint.id: endpoint for endpoint in endpoints}
+    return [
+        AlertResponse(
+            id=alert.id,
+            delivery_id=alert.delivery_id,
+            endpoint_id=delivery.endpoint_id if delivery else None,
+            endpoint_name=endpoint.name if endpoint else None,
+            endpoint_url=endpoint.url if endpoint else None,
+            message=alert.message,
+            created_at=alert.created_at,
+            acknowledged_at=alert.acknowledged_at,
+        )
+        for alert in alerts
+        for delivery in [deliveries_by_id.get(alert.delivery_id)]
+        for endpoint in [endpoints_by_id.get(delivery.endpoint_id) if delivery else None]
+    ]
 
 
 @router.post(

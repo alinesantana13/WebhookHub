@@ -4,6 +4,8 @@ from uuid import uuid4
 
 import pytest
 from fastapi import HTTPException
+from pydantic import ValidationError
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from webhookhub.applications.application.security import hash_api_key
@@ -12,7 +14,9 @@ from webhookhub.applications.domain.models import (
     Application,
     DeliveryStatus,
     Endpoint,
+    OperationalAlert,
     WebhookDelivery,
+    WebhookEvent,
 )
 from webhookhub.applications.presentation import routes
 from webhookhub.applications.presentation.routes import EndpointRequest, NamedRequest
@@ -29,7 +33,9 @@ class FakeSession:
         self.application = application
         self.membership = membership
         self.added: list[Any] = []
+        self.deleted: list[Any] = []
         self.commit_count = 0
+        self.rollback_count = 0
 
     async def get(self, model: type[Any], _: object) -> Any:
         assert model is Application
@@ -44,8 +50,14 @@ class FakeSession:
     async def commit(self) -> None:
         self.commit_count += 1
 
+    async def rollback(self) -> None:
+        self.rollback_count += 1
+
+    async def delete(self, value: Any) -> None:
+        self.deleted.append(value)
+
     async def refresh(self, value: object) -> None:
-        if isinstance(value, (ApiKey, Endpoint)):
+        if isinstance(value, (ApiKey, Application, Endpoint)):
             value.id = uuid4()
             value.created_at = datetime.now(UTC)
 
@@ -60,6 +72,36 @@ def application() -> Application:
 
 def membership(app: Application, current_user: User, role: OrganizationRole) -> Membership:
     return Membership(organization_id=app.organization_id, user_id=current_user.id, role=role)
+
+
+def test_names_are_trimmed_and_blank_names_are_rejected() -> None:
+    assert NamedRequest(name="  Payments  ").name == "Payments"
+    with pytest.raises(ValidationError):
+        NamedRequest(name="   ")
+
+
+@pytest.mark.asyncio
+async def test_duplicate_application_name_returns_conflict() -> None:
+    app = application()
+    current_user = user()
+
+    class DuplicateSession(FakeSession):
+        async def commit(self) -> None:
+            raise IntegrityError("INSERT", {}, Exception("duplicate"))
+
+    fake = DuplicateSession(
+        membership=membership(app, current_user, OrganizationRole.OWNER),
+    )
+    with pytest.raises(HTTPException) as raised:
+        await routes.create_application(
+            app.organization_id,
+            NamedRequest(name="Payments"),
+            current_user,
+            cast(AsyncSession, fake),
+        )
+
+    assert raised.value.status_code == 409
+    assert fake.rollback_count == 1
 
 
 @pytest.mark.asyncio
@@ -110,6 +152,45 @@ async def test_api_key_is_returned_once_and_persisted_as_hash() -> None:
     assert stored.key_hash == hash_api_key(response.key)
     assert stored.key_hash != response.key
     assert fake.commit_count == 1
+
+
+@pytest.mark.asyncio
+async def test_application_can_be_deleted_by_an_admin() -> None:
+    app = application()
+    current_user = user()
+    fake = FakeSession(
+        application=app,
+        membership=membership(app, current_user, OrganizationRole.ADMIN),
+    )
+
+    await routes.delete_application(app.id, current_user, cast(AsyncSession, fake))
+
+    assert fake.deleted == [app]
+    assert fake.commit_count == 1
+
+
+@pytest.mark.asyncio
+async def test_api_key_can_be_revoked_or_deleted() -> None:
+    app = application()
+    current_user = user()
+    member = membership(app, current_user, OrganizationRole.OWNER)
+    key = ApiKey(id=uuid4(), application_id=app.id, name="Production")
+
+    class KeySession(FakeSession):
+        def __init__(self) -> None:
+            super().__init__(application=app)
+            self.results: list[Any] = [member, key, member, key]
+
+        async def scalar(self, _: object) -> Any:
+            return self.results.pop(0)
+
+    fake = KeySession()
+    await routes.revoke_api_key(app.id, key.id, current_user, cast(AsyncSession, fake))
+    assert key.revoked_at is not None
+
+    await routes.delete_api_key(app.id, key.id, current_user, cast(AsyncSession, fake))
+    assert fake.deleted == [key]
+    assert fake.commit_count == 2
 
 
 @pytest.mark.asyncio
@@ -175,3 +256,95 @@ async def test_delivery_can_be_replayed() -> None:
     assert result.last_error is None
     assert result.delivered_at is None
     assert fake.commit_count == 1
+
+
+@pytest.mark.asyncio
+async def test_events_identify_the_destination_endpoint() -> None:
+    app = application()
+    current_user = user()
+    event = WebhookEvent(
+        id=uuid4(),
+        application_id=app.id,
+        idempotency_key="payment-001",
+        payload_hash="hash",
+        payload={"paid": True},
+        headers={},
+        received_at=datetime.now(UTC),
+    )
+    endpoint = Endpoint(
+        id=uuid4(),
+        application_id=app.id,
+        name="n8n",
+        url="https://n8n.example.com/webhook",
+    )
+    delivery = WebhookDelivery(
+        id=uuid4(),
+        event_id=event.id,
+        endpoint_id=endpoint.id,
+        status=DeliveryStatus.SUCCEEDED,
+        attempt_count=1,
+        last_status_code=200,
+    )
+
+    class Rows(list[Any]):
+        def all(self) -> list[Any]:
+            return list(self)
+
+    class EventSession(FakeSession):
+        def __init__(self) -> None:
+            super().__init__(
+                application=app,
+                membership=membership(app, current_user, OrganizationRole.OWNER),
+            )
+            self.rows = [Rows([event]), Rows([delivery]), Rows([endpoint])]
+
+        async def scalars(self, _: object) -> Rows:
+            return self.rows.pop(0)
+
+    result = await routes.list_events(app.id, current_user, cast(AsyncSession, EventSession()))
+
+    assert result[0].deliveries[0].endpoint_name == "n8n"
+    assert result[0].deliveries[0].endpoint_url == endpoint.url
+
+
+@pytest.mark.asyncio
+async def test_alerts_identify_the_failed_endpoint() -> None:
+    app = application()
+    current_user = user()
+    endpoint = Endpoint(
+        id=uuid4(), application_id=app.id, name="Other", url="https://example.com/hook"
+    )
+    delivery = WebhookDelivery(
+        id=uuid4(),
+        event_id=uuid4(),
+        endpoint_id=endpoint.id,
+        status=DeliveryStatus.DEAD,
+        attempt_count=5,
+    )
+    alert = OperationalAlert(
+        id=uuid4(),
+        application_id=app.id,
+        delivery_id=delivery.id,
+        message="HTTP 405",
+        created_at=datetime.now(UTC),
+    )
+
+    class Rows(list[Any]):
+        def all(self) -> list[Any]:
+            return list(self)
+
+    class AlertSession(FakeSession):
+        def __init__(self) -> None:
+            super().__init__(
+                application=app,
+                membership=membership(app, current_user, OrganizationRole.ADMIN),
+            )
+            self.rows = [Rows([alert]), Rows([delivery]), Rows([endpoint])]
+
+        async def scalars(self, _: object) -> Rows:
+            return self.rows.pop(0)
+
+    result = await routes.list_alerts(app.id, current_user, cast(AsyncSession, AlertSession()))
+
+    assert result[0].endpoint_name == "Other"
+    assert result[0].endpoint_id == endpoint.id

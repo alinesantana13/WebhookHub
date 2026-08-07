@@ -9,11 +9,13 @@ from sqlalchemy import (
     DateTime,
     Enum,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
@@ -24,6 +26,14 @@ from webhookhub.shared.infrastructure.database import Base
 
 class Application(Base):
     __tablename__ = "applications"
+    __table_args__ = (
+        Index(
+            "uq_applications_organization_normalized_name",
+            "organization_id",
+            text("lower(btrim(name))"),
+            unique=True,
+        ),
+    )
 
     id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
     organization_id: Mapped[UUID] = mapped_column(
