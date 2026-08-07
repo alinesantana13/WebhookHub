@@ -9,7 +9,9 @@ from webhookhub.applications.presentation.routes import router as applications_r
 from webhookhub.bootstrap.config import Settings, get_settings
 from webhookhub.identity.presentation.routes import organizations_router
 from webhookhub.identity.presentation.routes import router as identity_router
+from webhookhub.shared.infrastructure.cache import RedisCache
 from webhookhub.shared.infrastructure.database import Database
+from webhookhub.shared.infrastructure.messaging import KafkaMessaging
 from webhookhub.shared.presentation.health import router as health_router
 from webhookhub.shared.presentation.middleware import RequestContextMiddleware
 
@@ -20,10 +22,13 @@ def create_app(settings: Settings | None = None, database: Database | None = Non
         resolved_settings.postgres_dsn,
         echo=resolved_settings.debug,
     )
+    cache = RedisCache(resolved_settings.redis_dsn)
+    messaging = KafkaMessaging(resolved_settings.kafka_bootstrap_servers)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncGenerator[None]:
         yield
+        await cache.close()
         await resolved_database.dispose()
 
     app = FastAPI(
@@ -36,6 +41,8 @@ def create_app(settings: Settings | None = None, database: Database | None = Non
     )
     app.state.settings = resolved_settings
     app.state.database = resolved_database
+    app.state.cache = cache
+    app.state.messaging = messaging
     app.add_middleware(RequestContextMiddleware)
     app.add_middleware(
         CORSMiddleware,

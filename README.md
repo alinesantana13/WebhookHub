@@ -6,7 +6,7 @@ engenharia backend Python, arquitetura orientada a eventos e operação em produ
 
 ## Estado atual
 
-Entregas 1 a 4 — fundação, identidade, aplicações e ingestão:
+Entregas 1 a 5 — fundação, identidade, aplicações, ingestão e entrega:
 
 - aplicação FastAPI com configuração tipada;
 - endpoints `GET /health` e `GET /ready`, com readiness real do PostgreSQL;
@@ -17,14 +17,16 @@ Entregas 1 a 4 — fundação, identidade, aplicações e ingestão:
 - aplicações por organização, API Keys armazenadas somente como hash e revogação;
 - endpoints de destino com proteção contra SSRF (DNS e endereços não públicos);
 - ingestão autenticada por API Key, idempotência por aplicação e Transactional Outbox;
+- relay da outbox para Kafka e consumo em grupo por workers;
+- entrega HTTP com proteção contra SSRF no momento do envio, timeout e redirects desativados;
+- retries exponenciais duráveis e Dead Letter Queue no Kafka após o limite de tentativas;
 - propagação segura de `X-Request-ID`;
 - testes, Ruff, MyPy e meta mínima de 80% de cobertura;
 - imagens e serviços locais para API, PostgreSQL, Redis e Kafka;
 - pipeline inicial de qualidade e build no GitHub Actions.
 
-Mensageria, entrega e frontend entram nas próximas entregas. O endpoint `/ready`
-já verifica o PostgreSQL; Redis e Kafka serão incluídos quando seus adaptadores forem
-implementados.
+O frontend entra na próxima entrega. O endpoint `/ready` verifica PostgreSQL, Redis e
+Kafka (testes isolados verificam apenas o PostgreSQL).
 
 ## Requisitos
 
@@ -119,5 +121,4 @@ separado em `domain`, `application`, `infrastructure` e `presentation`.
 
 ## Próximas entregas
 
-1. Kafka, workers, entrega HTTP, retry e DLQ;
-2. observabilidade e frontend administrativo.
+1. observabilidade e frontend administrativo.

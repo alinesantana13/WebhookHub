@@ -9,12 +9,15 @@ description = "Reliable multi-tenant webhook delivery platform"
 readme = "README.md"
 requires-python = ">=3.13,<3.15"
 dependencies = [
+  "aiokafka>=0.12,<1.0",
   "alembic>=1.19,<2.0",
   "asyncpg>=0.31,<1.0",
   "fastapi>=0.141.1,<1.0",
+  "httpx>=0.28.1,<1.0",
   "pwdlib[argon2]>=0.3,<1.0",
   "pyjwt>=2.10,<3.0",
   "pydantic-settings>=2.14.2,<3.0",
+  "redis>=6.4,<7.0",
   "sqlalchemy[asyncio]>=2.0.51,<3.0",
   "uvicorn[standard]>=0.52.1,<1.0",
 ]
@@ -58,6 +61,10 @@ python_version = "3.13"
 strict = true
 plugins = ["pydantic.mypy"]
 files = ["src", "tests"]
+
+[[tool.mypy.overrides]]
+module = ["aiokafka", "aiokafka.*"]
+ignore_missing_imports = true
 
 [tool.coverage.run]
 branch = true
