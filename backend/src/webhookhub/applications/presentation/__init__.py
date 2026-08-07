@@ -1,0 +1,1 @@
+"""Applications HTTP interface."""

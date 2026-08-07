@@ -6,7 +6,7 @@ engenharia backend Python, arquitetura orientada a eventos e operação em produ
 
 ## Estado atual
 
-Entregas 1 e 2 — fundação do backend e identidade:
+Entregas 1 a 3 — fundação, identidade e gestão de aplicações:
 
 - aplicação FastAPI com configuração tipada;
 - endpoints `GET /health` e `GET /ready`, com readiness real do PostgreSQL;
@@ -14,12 +14,14 @@ Entregas 1 e 2 — fundação do backend e identidade:
 - cadastro multi-tenant com usuário, organização e vínculo de proprietário;
 - login com access token JWT e refresh token rotativo armazenado como hash;
 - detecção de reutilização de refresh token e RBAC por organização;
+- aplicações por organização, API Keys armazenadas somente como hash e revogação;
+- endpoints de destino com proteção contra SSRF (DNS e endereços não públicos);
 - propagação segura de `X-Request-ID`;
 - testes, Ruff, MyPy e meta mínima de 80% de cobertura;
 - imagens e serviços locais para API, PostgreSQL, Redis e Kafka;
 - pipeline inicial de qualidade e build no GitHub Actions.
 
-Mensageria e frontend entram nas próximas entregas. O endpoint `/ready`
+Ingestão, mensageria e frontend entram nas próximas entregas. O endpoint `/ready`
 já verifica o PostgreSQL; Redis e Kafka serão incluídos quando seus adaptadores forem
 implementados.
 
@@ -61,13 +63,15 @@ uv run --project backend pytest backend/tests
 Com o PostgreSQL do Compose em execução:
 
 ```powershell
+$env:WEBHOOKHUB_POSTGRES_DSN = "postgresql+asyncpg://webhookhub:webhookhub@localhost:5432/webhookhub"
 uv run --project backend alembic -c backend/alembic.ini upgrade head
 uv run --project backend alembic -c backend/alembic.ini check
 ```
 
 O primeiro comando aplica migrations; o segundo detecta divergências entre os models e
-o schema. Ainda não há tabelas de domínio: a primeira migration será criada junto das
-entidades de identidade e organizações, evitando schema sem comportamento associado.
+o schema. Ao executar pelo PowerShell, o PostgreSQL publicado pelo Compose é acessado por
+`localhost`. O hostname `postgres` configurado no `.env` é resolvido somente entre os
+containers da rede do Compose.
 
 Para incluir o teste de integração local na suíte:
 
@@ -97,7 +101,6 @@ separado em `domain`, `application`, `infrastructure` e `presentation`.
 
 ## Próximas entregas
 
-1. aplicações, API Keys e endpoints protegidos contra SSRF;
-2. ingestão idempotente e Transactional Outbox;
-3. Kafka, workers, entrega HTTP, retry e DLQ;
-4. observabilidade e frontend administrativo.
+1. ingestão idempotente e Transactional Outbox;
+2. Kafka, workers, entrega HTTP, retry e DLQ;
+3. observabilidade e frontend administrativo.

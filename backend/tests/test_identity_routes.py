@@ -85,16 +85,17 @@ async def test_issue_tokens_persists_hashed_refresh_token() -> None:
 @pytest.mark.asyncio
 async def test_current_user_is_loaded_from_valid_token() -> None:
     user = User(
-        id=uuid4(), email="owner@example.com", password_hash="hash", name="Owner"  # noqa: S106
+        id=uuid4(),
+        email="owner@example.com",
+        password_hash="hash",  # noqa: S106
+        name="Owner",
     )
     tokens = TokenService("x" * 32, 15)
     credentials = HTTPAuthorizationCredentials(
         scheme="Bearer", credentials=tokens.create_access_token(user.id)
     )
 
-    current = await get_current_user(
-        credentials, cast(AsyncSession, FakeSession(user)), tokens
-    )
+    current = await get_current_user(credentials, cast(AsyncSession, FakeSession(user)), tokens)
 
     assert current is user
 
@@ -102,9 +103,7 @@ async def test_current_user_is_loaded_from_valid_token() -> None:
 @pytest.mark.asyncio
 async def test_current_user_requires_credentials() -> None:
     with pytest.raises(HTTPException) as raised:
-        await get_current_user(
-            None, cast(AsyncSession, FakeSession()), TokenService("x" * 32, 15)
-        )
+        await get_current_user(None, cast(AsyncSession, FakeSession()), TokenService("x" * 32, 15))
 
     assert raised.value.status_code == 401
 

@@ -5,6 +5,7 @@ from alembic import context
 from sqlalchemy import Connection, pool
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
+from webhookhub.applications.domain import models as application_models  # noqa: F401
 from webhookhub.bootstrap.config import get_settings
 from webhookhub.identity.domain import models as identity_models  # noqa: F401
 from webhookhub.shared.infrastructure.database import Base
