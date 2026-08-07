@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from webhookhub.applications.presentation.ingestion import router as ingestion_router
 from webhookhub.applications.presentation.routes import router as applications_router
 from webhookhub.bootstrap.config import Settings, get_settings
 from webhookhub.identity.presentation.routes import organizations_router
@@ -41,12 +42,19 @@ def create_app(settings: Settings | None = None, database: Database | None = Non
         allow_origins=[str(origin) for origin in resolved_settings.cors_origins],
         allow_credentials=True,
         allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
-        allow_headers=["Authorization", "Content-Type", "Idempotency-Key", "X-Request-ID"],
+        allow_headers=[
+            "Authorization",
+            "Content-Type",
+            "Idempotency-Key",
+            "X-API-Key",
+            "X-Request-ID",
+        ],
     )
     app.include_router(health_router)
     app.include_router(identity_router)
     app.include_router(organizations_router)
     app.include_router(applications_router)
+    app.include_router(ingestion_router)
     return app
 
 

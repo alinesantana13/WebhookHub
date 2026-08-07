@@ -6,7 +6,7 @@ engenharia backend Python, arquitetura orientada a eventos e operação em produ
 
 ## Estado atual
 
-Entregas 1 a 3 — fundação, identidade e gestão de aplicações:
+Entregas 1 a 4 — fundação, identidade, aplicações e ingestão:
 
 - aplicação FastAPI com configuração tipada;
 - endpoints `GET /health` e `GET /ready`, com readiness real do PostgreSQL;
@@ -16,12 +16,13 @@ Entregas 1 a 3 — fundação, identidade e gestão de aplicações:
 - detecção de reutilização de refresh token e RBAC por organização;
 - aplicações por organização, API Keys armazenadas somente como hash e revogação;
 - endpoints de destino com proteção contra SSRF (DNS e endereços não públicos);
+- ingestão autenticada por API Key, idempotência por aplicação e Transactional Outbox;
 - propagação segura de `X-Request-ID`;
 - testes, Ruff, MyPy e meta mínima de 80% de cobertura;
 - imagens e serviços locais para API, PostgreSQL, Redis e Kafka;
 - pipeline inicial de qualidade e build no GitHub Actions.
 
-Ingestão, mensageria e frontend entram nas próximas entregas. O endpoint `/ready`
+Mensageria, entrega e frontend entram nas próximas entregas. O endpoint `/ready`
 já verifica o PostgreSQL; Redis e Kafka serão incluídos quando seus adaptadores forem
 implementados.
 
@@ -84,6 +85,23 @@ O arquivo `backend/uv.lock` deve ser versionado. O CI e a imagem Docker usam `--
 portanto falham se o manifesto e o lockfile estiverem fora de sincronia. O `pip` não faz
 parte do fluxo de desenvolvimento, build ou CI do projeto.
 
+## Ingestão de webhooks
+
+Envie um objeto JSON usando a API Key criada para a aplicação. A chave de idempotência
+é limitada a 128 caracteres e identifica o evento dentro da aplicação:
+
+```powershell
+Invoke-RestMethod -Method Post `
+  -Uri http://localhost:8000/applications/<application-id>/webhooks `
+  -Headers @{ "X-API-Key" = "whk_..."; "Idempotency-Key" = "payment-123" } `
+  -ContentType "application/json" `
+  -Body '{"type":"payment.confirmed","payment_id":"123"}'
+```
+
+A gravação do evento e da mensagem em `outbox_messages` ocorre na mesma transação.
+Repetir chave e conteúdo retorna o evento original; repetir a chave com outro conteúdo
+retorna `409 Conflict`.
+
 ## Organização inicial
 
 ```text
@@ -101,6 +119,5 @@ separado em `domain`, `application`, `infrastructure` e `presentation`.
 
 ## Próximas entregas
 
-1. ingestão idempotente e Transactional Outbox;
-2. Kafka, workers, entrega HTTP, retry e DLQ;
-3. observabilidade e frontend administrativo.
+1. Kafka, workers, entrega HTTP, retry e DLQ;
+2. observabilidade e frontend administrativo.
