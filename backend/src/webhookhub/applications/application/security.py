@@ -1,4 +1,5 @@
 import asyncio
+import hmac
 import ipaddress
 import socket
 from collections.abc import Awaitable, Callable, Sequence
@@ -20,6 +21,15 @@ def new_api_key() -> str:
 
 def hash_api_key(value: str) -> str:
     return sha256(value.encode()).hexdigest()
+
+
+def new_signing_secret() -> str:
+    return f"whsec_{token_urlsafe(32)}"
+
+
+def sign_webhook(secret: str, timestamp: int, body: bytes) -> str:
+    signed = str(timestamp).encode() + b"." + body
+    return hmac.new(secret.encode(), signed, sha256).hexdigest()
 
 
 async def _resolve(host: str, port: int) -> Sequence[str]:

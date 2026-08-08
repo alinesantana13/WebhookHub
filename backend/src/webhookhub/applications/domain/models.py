@@ -1,9 +1,22 @@
 from __future__ import annotations
 
 from datetime import datetime
+from enum import StrEnum
 from uuid import UUID, uuid4
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, String, UniqueConstraint, func
+from sqlalchemy import (
+    Boolean,
+    DateTime,
+    Enum,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+    text,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -13,6 +26,14 @@ from webhookhub.shared.infrastructure.database import Base
 
 class Application(Base):
     __tablename__ = "applications"
+    __table_args__ = (
+        Index(
+            "uq_applications_organization_normalized_name",
+            "organization_id",
+            text("lower(btrim(name))"),
+            unique=True,
+        ),
+    )
 
     id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
     organization_id: Mapped[UUID] = mapped_column(
@@ -48,6 +69,7 @@ class Endpoint(Base):
     )
     name: Mapped[str] = mapped_column(String(120))
     url: Mapped[str] = mapped_column(String(2048))
+    signing_secret: Mapped[str] = mapped_column(String(128))
     enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
@@ -80,3 +102,53 @@ class OutboxMessage(Base):
     payload: Mapped[dict[str, object]] = mapped_column(JSONB)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class DeliveryStatus(StrEnum):
+    PENDING = "pending"
+    SUCCEEDED = "succeeded"
+    DEAD = "dead"
+
+
+class WebhookDelivery(Base):
+    __tablename__ = "webhook_deliveries"
+    __table_args__ = (UniqueConstraint("event_id", "endpoint_id"),)
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
+    event_id: Mapped[UUID] = mapped_column(
+        ForeignKey("webhook_events.id", ondelete="CASCADE"), index=True
+    )
+    endpoint_id: Mapped[UUID] = mapped_column(
+        ForeignKey("endpoints.id", ondelete="CASCADE"), index=True
+    )
+    status: Mapped[DeliveryStatus] = mapped_column(
+        Enum(
+            DeliveryStatus,
+            name="delivery_status",
+            values_callable=lambda enum: [e.value for e in enum],
+        ),
+        default=DeliveryStatus.PENDING,
+    )
+    attempt_count: Mapped[int] = mapped_column(Integer, default=0)
+    next_attempt_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True
+    )
+    last_status_code: Mapped[int | None] = mapped_column(Integer)
+    last_error: Mapped[str | None] = mapped_column(Text)
+    delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class OperationalAlert(Base):
+    __tablename__ = "operational_alerts"
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
+    application_id: Mapped[UUID] = mapped_column(
+        ForeignKey("applications.id", ondelete="CASCADE"), index=True
+    )
+    delivery_id: Mapped[UUID] = mapped_column(
+        ForeignKey("webhook_deliveries.id", ondelete="CASCADE"), unique=True, index=True
+    )
+    message: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    acknowledged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

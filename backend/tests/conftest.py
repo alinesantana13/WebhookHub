@@ -22,7 +22,7 @@ class HealthyTestDatabase(Database):
 
 @pytest_asyncio.fixture
 async def client() -> AsyncIterator[AsyncClient]:
-    settings = Settings(environment="test", cors_origins=[])
+    settings = Settings(environment="test", cors_origins=[], metrics_token=None)
     transport = ASGITransport(app=create_app(settings, database=HealthyTestDatabase()))
     async with AsyncClient(transport=transport, base_url="http://test") as test_client:
         yield test_client
