@@ -1,0 +1,34 @@
+.sidebar nav .nav-item {
+  background: transparent;
+  color: #86a098;
+  box-shadow: none;
+}
+
+.sidebar nav .nav-item:hover {
+  background: #ffffff08;
+  color: #c7d7d2;
+}
+
+.sidebar nav .nav-item.active {
+  background: #ffffff0d;
+  color: #fff;
+  box-shadow: inset 3px 0 #42d59d;
+}
+
+.alert-row.acknowledged {
+  background: #fafcfb;
+  opacity: 1;
+}
+
+.alert-row.acknowledged strong {
+  color: #4f5f5a;
+}
+
+.alert-row.acknowledged small {
+  color: #667770;
+}
+
+.alert-row.acknowledged .alert-icon {
+  background: #fff1ef;
+  color: #a95a54;
+}

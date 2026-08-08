@@ -8,14 +8,6 @@ from webhookhub.main import create_app
 
 
 @pytest.mark.asyncio
-async def test_admin_frontend_is_served(client: AsyncClient) -> None:
-    response = await client.get("/admin/")
-
-    assert response.status_code == 200
-    assert "Painel operacional" in response.text
-
-
-@pytest.mark.asyncio
 async def test_metrics_reports_requests(client: AsyncClient) -> None:
     await client.get("/health")
 

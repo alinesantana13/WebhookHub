@@ -1,11 +1,9 @@
 import logging
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 
 from webhookhub.applications.presentation.ingestion import router as ingestion_router
 from webhookhub.applications.presentation.routes import router as applications_router
@@ -78,8 +76,6 @@ def create_app(settings: Settings | None = None, database: Database | None = Non
     app.include_router(applications_router)
     app.include_router(ingestion_router)
     app.include_router(observability_router)
-    admin_directory = Path(__file__).parent / "admin"
-    app.mount("/admin", StaticFiles(directory=admin_directory, html=True), name="admin")
     return app
 
 

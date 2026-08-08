@@ -106,6 +106,8 @@ class EventResponse(BaseModel):
 class AlertResponse(BaseModel):
     id: UUID
     delivery_id: UUID
+    event_id: UUID | None = None
+    event_idempotency_key: str | None = None
     endpoint_id: UUID | None = None
     endpoint_name: str | None = None
     endpoint_url: str | None = None
@@ -260,6 +262,8 @@ async def delete_api_key(
     application = await get_application(application_id, session)
     await require_membership(application.organization_id, current_user.id, session, write=True)
     key = await get_api_key(application_id, key_id, session)
+    if key.revoked_at is None:
+        raise HTTPException(status_code=409, detail="API key must be revoked before deletion")
     await session.delete(key)
     await session.commit()
 
@@ -347,6 +351,27 @@ async def list_endpoints(
             )
         ).all()
     )
+
+
+@router.delete("/applications/{application_id}/endpoints/{endpoint_id}", status_code=204)
+async def delete_endpoint(
+    application_id: UUID,
+    endpoint_id: UUID,
+    current_user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> None:
+    application = await get_application(application_id, session)
+    await require_membership(application.organization_id, current_user.id, session, write=True)
+    endpoint = await session.scalar(
+        select(Endpoint).where(
+            Endpoint.id == endpoint_id,
+            Endpoint.application_id == application_id,
+        )
+    )
+    if endpoint is None:
+        raise HTTPException(status_code=404, detail="Endpoint not found")
+    await session.delete(endpoint)
+    await session.commit()
 
 
 @router.get("/applications/{application_id}/events", response_model=list[EventResponse])
@@ -472,6 +497,14 @@ async def list_alerts(
         )
     ).all()
     deliveries_by_id = {delivery.id: delivery for delivery in deliveries}
+    events = (
+        await session.scalars(
+            select(WebhookEvent).where(
+                WebhookEvent.id.in_({delivery.event_id for delivery in deliveries})
+            )
+        )
+    ).all()
+    events_by_id = {event.id: event for event in events}
     endpoints = (
         await session.scalars(
             select(Endpoint).where(
@@ -484,6 +517,8 @@ async def list_alerts(
         AlertResponse(
             id=alert.id,
             delivery_id=alert.delivery_id,
+            event_id=delivery.event_id if delivery else None,
+            event_idempotency_key=event.idempotency_key if event else None,
             endpoint_id=delivery.endpoint_id if delivery else None,
             endpoint_name=endpoint.name if endpoint else None,
             endpoint_url=endpoint.url if endpoint else None,
@@ -493,6 +528,7 @@ async def list_alerts(
         )
         for alert in alerts
         for delivery in [deliveries_by_id.get(alert.delivery_id)]
+        for event in [events_by_id.get(delivery.event_id) if delivery else None]
         for endpoint in [endpoints_by_id.get(delivery.endpoint_id) if delivery else None]
     ]
 

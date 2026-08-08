@@ -1,6 +1,16 @@
 name: webhookhub
 
 services:
+  frontend:
+    build:
+      context: .
+      dockerfile: deploy/docker/frontend.Dockerfile
+    ports:
+      - "5173:80"
+    depends_on:
+      api:
+        condition: service_started
+
   api:
     build:
       context: .

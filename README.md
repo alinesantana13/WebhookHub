@@ -1,8 +1,8 @@
 # WebhookHub
 
 Plataforma SaaS multi-tenant para recebimento, processamento e entrega confiável de
-webhooks. O projeto está sendo desenvolvido incrementalmente como demonstração de
-engenharia backend Python, arquitetura orientada a eventos e operação em produção.
+webhooks. O projeto reúne uma API e workers em Python com um painel operacional em
+React e TypeScript.
 
 ## Estado atual
 
@@ -22,7 +22,8 @@ Entregas 1 a 7 — fundação, identidade, aplicações, ingestão, entrega e op
 - retries exponenciais duráveis e Dead Letter Queue no Kafka após o limite de tentativas;
 - assinaturas HMAC SHA-256 por endpoint, com timestamp e segredo exibido uma única vez;
 - replay manual de entregas e alertas operacionais persistentes com reconhecimento;
-- painel administrativo responsivo em `/admin/`, com gestão de aplicações, chaves e endpoints;
+- frontend React em `http://localhost:5173`, com login, visão operacional, criação e
+  exclusão de aplicações, gestão de chaves e endpoints, eventos, entregas e alertas;
 - consulta de eventos e estado de suas entregas pelo painel;
 - métricas Prometheus em `/metrics` e logs HTTP estruturados com correlação por request ID;
 - propagação segura de `X-Request-ID`;
@@ -38,9 +39,26 @@ Kafka (testes isolados verificam apenas o PostgreSQL).
 - Python 3.13 ou 3.14;
 - `uv` 0.11 ou superior;
 - Docker 27 ou superior com Docker Compose;
+- Node.js 22 ou superior e npm, para executar o frontend fora do Docker;
 - GNU Make opcional no Windows.
 
-## Execução local com Python
+## Arquitetura
+
+```text
+frontend/                  SPA React + TypeScript + Vite
+backend/                   API FastAPI, domínio e workers
+deploy/docker/             imagens e configuração Nginx
+PostgreSQL                 dados transacionais
+Kafka                      fila de eventos e entregas
+Redis                      infraestrutura de cache/readiness
+```
+
+O frontend chama a API por `/api`. No desenvolvimento, o Vite encaminha essas chamadas
+para `http://localhost:8000`. No Docker, o Nginx encaminha `/api` para o serviço `api`.
+
+## Execução local
+
+### Backend
 
 ```powershell
 uv sync --project backend --group dev
@@ -49,7 +67,21 @@ uv run --project backend uvicorn webhookhub.main:app --reload
 ```
 
 A API estará em `http://localhost:8000`; a documentação OpenAPI, em `/docs`.
-O painel administrativo estará em `http://localhost:8000/admin/`.
+
+### Frontend React
+
+Em outro terminal:
+
+```powershell
+cd frontend
+copy .env.example .env
+npm install
+npm run dev
+```
+
+O painel estará em `http://localhost:5173`. Consulte o
+[`frontend/README.md`](frontend/README.md) para detalhes da interface e de seu fluxo de
+desenvolvimento.
 
 ## Observabilidade
 
@@ -65,6 +97,12 @@ copy .env.example .env
 docker compose up --build
 ```
 
+Com Docker Compose:
+
+- frontend React: `http://localhost:5173`;
+- API FastAPI: `http://localhost:8000`;
+- Swagger: `http://localhost:8000/docs`.
+
 ## Qualidade e testes
 
 ```powershell
@@ -72,6 +110,14 @@ uv run --project backend ruff check backend
 uv run --project backend ruff format --check backend
 uv run --project backend mypy backend/src backend/tests
 uv run --project backend pytest backend/tests
+```
+
+Frontend:
+
+```powershell
+cd frontend
+npm run lint
+npm run build
 ```
 
 ## Banco de dados e migrations
@@ -117,7 +163,7 @@ A gravação do evento e da mensagem em `outbox_messages` ocorre na mesma transa
 Repetir chave e conteúdo retorna o evento original; repetir a chave com outro conteúdo
 retorna `409 Conflict`.
 
-## Organização inicial
+## Organização do projeto
 
 ```text
 backend/                  API e futuros workers Python
@@ -125,9 +171,19 @@ backend/                  API e futuros workers Python
     bootstrap/            composição e configuração
     shared/presentation/  recursos HTTP transversais
   tests/                  testes automatizados
+frontend/                 painel React e cliente da API
+  src/
+    api.ts                autenticação e chamadas HTTP
+    App.tsx               login e dashboard inicial
+    types.ts              contratos TypeScript da API
 deploy/docker/            imagens da aplicação
 .github/workflows/        integração contínua
 ```
+
+Documentação específica:
+
+- [`backend/README.md`](backend/README.md): arquitetura e decisões do backend;
+- [`frontend/README.md`](frontend/README.md): execução e estrutura do painel React.
 
 Os módulos de negócio serão introduzidos quando receberem comportamento real, cada um
 separado em `domain`, `application`, `infrastructure` e `presentation`.
@@ -145,4 +201,6 @@ reconhecidos pelo endpoint `POST .../alerts/{alert_id}/acknowledge`.
 
 ## Próximas entregas
 
-1. retenção configurável, filtros avançados e exportação de auditoria.
+1. adicionar detalhes de evento, replay e reconhecimento de alertas no novo painel;
+2. incluir edição e ativação/desativação de endpoints;
+3. retenção configurável, filtros avançados e exportação de auditoria.

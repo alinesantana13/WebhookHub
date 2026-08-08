@@ -194,6 +194,29 @@ async def test_api_key_can_be_revoked_or_deleted() -> None:
 
 
 @pytest.mark.asyncio
+async def test_active_api_key_cannot_be_deleted() -> None:
+    app = application()
+    current_user = user()
+    member = membership(app, current_user, OrganizationRole.OWNER)
+    key = ApiKey(id=uuid4(), application_id=app.id, name="Production")
+
+    class KeySession(FakeSession):
+        def __init__(self) -> None:
+            super().__init__(application=app)
+            self.results: list[Any] = [member, key]
+
+        async def scalar(self, _: object) -> Any:
+            return self.results.pop(0)
+
+    fake = KeySession()
+    with pytest.raises(HTTPException) as raised:
+        await routes.delete_api_key(app.id, key.id, current_user, cast(AsyncSession, fake))
+
+    assert raised.value.status_code == 409
+    assert not fake.deleted
+
+
+@pytest.mark.asyncio
 async def test_endpoint_is_validated_before_persistence(monkeypatch: pytest.MonkeyPatch) -> None:
     app = application()
     current_user = user()
@@ -217,6 +240,30 @@ async def test_endpoint_is_validated_before_persistence(monkeypatch: pytest.Monk
     assert result.id == stored.id
     assert stored.url == "https://example.com/hook"
     assert result.signing_secret.startswith("whsec_")
+
+
+@pytest.mark.asyncio
+async def test_endpoint_can_be_deleted() -> None:
+    app = application()
+    current_user = user()
+    member = membership(app, current_user, OrganizationRole.ADMIN)
+    endpoint = Endpoint(
+        id=uuid4(), application_id=app.id, name="Primary", url="https://example.com/hook"
+    )
+
+    class EndpointSession(FakeSession):
+        def __init__(self) -> None:
+            super().__init__(application=app)
+            self.results: list[Any] = [member, endpoint]
+
+        async def scalar(self, _: object) -> Any:
+            return self.results.pop(0)
+
+    fake = EndpointSession()
+    await routes.delete_endpoint(app.id, endpoint.id, current_user, cast(AsyncSession, fake))
+
+    assert fake.deleted == [endpoint]
+    assert fake.commit_count == 1
 
 
 @pytest.mark.asyncio
@@ -339,7 +386,15 @@ async def test_alerts_identify_the_failed_endpoint() -> None:
                 application=app,
                 membership=membership(app, current_user, OrganizationRole.ADMIN),
             )
-            self.rows = [Rows([alert]), Rows([delivery]), Rows([endpoint])]
+            event = WebhookEvent(
+                id=delivery.event_id,
+                application_id=app.id,
+                idempotency_key="payment-001",
+                payload_hash="hash",
+                payload={},
+                headers={},
+            )
+            self.rows = [Rows([alert]), Rows([delivery]), Rows([event]), Rows([endpoint])]
 
         async def scalars(self, _: object) -> Rows:
             return self.rows.pop(0)
@@ -348,3 +403,5 @@ async def test_alerts_identify_the_failed_endpoint() -> None:
 
     assert result[0].endpoint_name == "Other"
     assert result[0].endpoint_id == endpoint.id
+    assert result[0].event_id == delivery.event_id
+    assert result[0].event_idempotency_key == "payment-001"
